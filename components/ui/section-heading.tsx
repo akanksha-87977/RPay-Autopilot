@@ -1,0 +1,6 @@
+export function SectionHeading({ eyebrow, title, description, action }: { eyebrow?: string; title: string; description?: string; action?: React.ReactNode }) {
+  return <div className="mb-6 flex flex-col justify-between gap-4 sm:flex-row sm:items-end">
+    <div>{eyebrow && <p className="eyebrow mb-2">{eyebrow}</p>}<h1 className="text-2xl font-bold tracking-[-.035em] text-ink sm:text-[28px]">{title}</h1>{description && <p className="mt-2 max-w-2xl text-sm leading-6 text-muted">{description}</p>}</div>
+    {action}
+  </div>;
+}

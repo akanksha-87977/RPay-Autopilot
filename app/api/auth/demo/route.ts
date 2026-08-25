@@ -1,0 +1,3 @@
+import { NextResponse } from "next/server";
+import { signSession } from "@/lib/auth";
+export async function GET(request:Request){const url=new URL(request.url);const next=url.searchParams.get("next")||"/dashboard/overview";if(!next.startsWith("/"))return NextResponse.json({error:"Invalid redirect"},{status:400});const token=await signSession({userId:"usr_nila",merchantId:"mer_nova_001",role:"OWNER"});const response=NextResponse.redirect(new URL(next,request.url));response.cookies.set("rpay_session",token,{httpOnly:true,sameSite:"lax",secure:process.env.NODE_ENV==="production",path:"/",maxAge:8*60*60});return response}

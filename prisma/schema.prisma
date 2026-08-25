@@ -1,0 +1,542 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+enum UserRole {
+  OWNER
+  ADMIN
+  OPERATOR
+  ANALYST
+}
+
+enum AgentRole {
+  AI_BUYER
+  MERCHANT_REVENUE_AGENT
+  SYSTEM
+}
+
+enum CartStatus {
+  ACTIVE
+  CHECKOUT
+  ABANDONED
+  CONVERTED
+  EXPIRED
+}
+
+enum OfferStatus {
+  DRAFT
+  PENDING_APPROVAL
+  APPROVED
+  BLOCKED
+  EXPIRED
+  REDEEMED
+}
+
+enum CampaignStatus {
+  PROPOSED
+  PENDING_APPROVAL
+  ACTIVE
+  PAUSED
+  COMPLETED
+  REJECTED
+}
+
+enum OrderStatus {
+  CREATED
+  PAYMENT_PENDING
+  PAID
+  FAILED
+  CANCELLED
+  REFUNDED
+  PARTIALLY_REFUNDED
+}
+
+enum PaymentStatus {
+  CREATED
+  AUTHORIZED
+  CAPTURED
+  FAILED
+  REFUNDED
+  PARTIALLY_REFUNDED
+}
+
+enum ApprovalStatus {
+  PENDING
+  APPROVED
+  REJECTED
+  EXPIRED
+}
+
+enum DecisionStatus {
+  AUTO_APPROVED
+  REQUIRES_APPROVAL
+  BLOCKED
+}
+
+enum OpportunityStatus {
+  DETECTED
+  PROPOSED
+  APPROVED
+  ACTIVE
+  DISMISSED
+  COMPLETED
+}
+
+enum AuditStatus {
+  INFO
+  SUCCESS
+  WARNING
+  FAILED
+}
+
+model Merchant {
+  id                   String               @id @default(cuid())
+  name                 String
+  currency             String               @default("INR")
+  timezone             String               @default("Asia/Calcutta")
+  razorpayAccountRef   String?
+  createdAt            DateTime             @default(now())
+  updatedAt            DateTime             @updatedAt
+  users                User[]
+  agents               Agent[]
+  products             Product[]
+  customers            Customer[]
+  carts                Cart[]
+  offers               Offer[]
+  campaigns            Campaign[]
+  orders               Order[]
+  policies             Policy[]
+  approvals            Approval[]
+  actions              AgentAction[]
+  auditEvents          AuditEvent[]
+  webhookEvents        WebhookEvent[]
+  opportunities        RevenueOpportunity[]
+
+  @@index([name])
+}
+
+model User {
+  id                   String       @id @default(cuid())
+  merchantId           String
+  email                String
+  name                 String
+  role                 UserRole     @default(OPERATOR)
+  passwordHash         String?
+  createdAt            DateTime     @default(now())
+  updatedAt            DateTime     @updatedAt
+  merchant             Merchant     @relation(fields: [merchantId], references: [id], onDelete: Cascade)
+  resolvedApprovals    Approval[]   @relation("ApprovalResolver")
+  auditEvents          AuditEvent[]
+
+  @@unique([merchantId, email])
+  @@index([merchantId, role])
+}
+
+model Agent {
+  id                   String            @id
+  merchantId           String
+  role                 AgentRole
+  name                 String
+  purpose              String?
+  maxSpend             Int?
+  active               Boolean           @default(true)
+  createdAt            DateTime          @default(now())
+  updatedAt            DateTime          @updatedAt
+  merchant             Merchant          @relation(fields: [merchantId], references: [id], onDelete: Cascade)
+  sessions             AgentSession[]
+  permissions          AgentPermission[]
+  actions              AgentAction[]
+  auditEvents          AuditEvent[]
+  carts                Cart[]
+  offers               Offer[]
+  orders               Order[]
+
+  @@index([merchantId, role, active])
+}
+
+model AgentSession {
+  id                   String       @id
+  agentId              String
+  merchantId           String
+  purpose              String?
+  authorizedBudget     Int?
+  spentAmount          Int          @default(0)
+  expiresAt            DateTime
+  createdAt            DateTime     @default(now())
+  agent                 Agent        @relation(fields: [agentId], references: [id], onDelete: Cascade)
+
+  @@index([merchantId, expiresAt])
+  @@index([agentId, createdAt])
+}
+
+model AgentPermission {
+  id                   String       @id @default(cuid())
+  agentId              String
+  permission           String
+  constraintJson       Json?
+  createdAt            DateTime     @default(now())
+  agent                 Agent        @relation(fields: [agentId], references: [id], onDelete: Cascade)
+
+  @@unique([agentId, permission])
+}
+
+model Product {
+  id                   String               @id
+  merchantId           String
+  sku                  String
+  name                 String
+  description          String?
+  category             String
+  price                 Int
+  cost                  Int
+  active                Boolean              @default(true)
+  tags                  String[]
+  metadata              Json?
+  createdAt             DateTime             @default(now())
+  updatedAt             DateTime             @updatedAt
+  merchant              Merchant             @relation(fields: [merchantId], references: [id], onDelete: Cascade)
+  inventory             Inventory?
+  cartItems             CartItem[]
+  offerItems            OfferItem[]
+  orderItems            OrderItem[]
+  campaigns             Campaign[]
+  signals               CustomerSignal[]
+
+  @@unique([merchantId, sku])
+  @@index([merchantId, active, category])
+  @@index([merchantId, name])
+}
+
+model Inventory {
+  id                   String       @id @default(cuid())
+  merchantId           String
+  productId            String       @unique
+  onHand               Int
+  reserved             Int          @default(0)
+  reorderPoint         Int          @default(10)
+  version              Int          @default(1)
+  updatedAt            DateTime     @updatedAt
+  product              Product      @relation(fields: [productId], references: [id], onDelete: Cascade)
+
+  @@index([merchantId, onHand])
+}
+
+model Customer {
+  id                   String           @id @default(cuid())
+  merchantId           String
+  externalRef          String?
+  name                 String?
+  email                String?
+  lifetimeValue        Int              @default(0)
+  createdAt            DateTime         @default(now())
+  updatedAt            DateTime         @updatedAt
+  merchant             Merchant         @relation(fields: [merchantId], references: [id], onDelete: Cascade)
+  signals              CustomerSignal[]
+  carts                Cart[]
+  orders               Order[]
+
+  @@unique([merchantId, externalRef])
+  @@index([merchantId, email])
+}
+
+model CustomerSignal {
+  id                   String       @id @default(cuid())
+  merchantId           String
+  customerId           String?
+  productId            String?
+  type                 String
+  value                Json
+  occurredAt           DateTime     @default(now())
+  customer             Customer?    @relation(fields: [customerId], references: [id], onDelete: SetNull)
+  product              Product?     @relation(fields: [productId], references: [id], onDelete: SetNull)
+
+  @@index([merchantId, type, occurredAt])
+  @@index([customerId, occurredAt])
+  @@index([productId, type])
+}
+
+model Cart {
+  id                   String       @id
+  merchantId           String
+  customerId           String?
+  agentId              String?
+  sessionId            String?
+  status               CartStatus   @default(ACTIVE)
+  currency             String       @default("INR")
+  expiresAt            DateTime?
+  createdAt            DateTime     @default(now())
+  updatedAt            DateTime     @updatedAt
+  merchant             Merchant     @relation(fields: [merchantId], references: [id], onDelete: Cascade)
+  customer             Customer?    @relation(fields: [customerId], references: [id], onDelete: SetNull)
+  agent                 Agent?       @relation(fields: [agentId], references: [id], onDelete: SetNull)
+  items                 CartItem[]
+  order                 Order?
+
+  @@index([merchantId, status, updatedAt])
+  @@index([agentId, sessionId])
+  @@index([customerId, status])
+}
+
+model CartItem {
+  id                   String       @id @default(cuid())
+  cartId               String
+  productId            String
+  quantity             Int
+  unitPrice            Int
+  cart                  Cart         @relation(fields: [cartId], references: [id], onDelete: Cascade)
+  product               Product      @relation(fields: [productId], references: [id])
+
+  @@unique([cartId, productId])
+}
+
+model Offer {
+  id                   String       @id
+  merchantId           String
+  agentId              String?
+  policyDecisionId     String?
+  status               OfferStatus  @default(DRAFT)
+  listPrice            Int
+  offerPrice           Int
+  currency             String       @default("INR")
+  expiresAt            DateTime
+  createdAt            DateTime     @default(now())
+  merchant             Merchant     @relation(fields: [merchantId], references: [id], onDelete: Cascade)
+  agent                 Agent?       @relation(fields: [agentId], references: [id], onDelete: SetNull)
+  policyDecision       PolicyDecision? @relation(fields: [policyDecisionId], references: [id])
+  items                 OfferItem[]
+  approvals             Approval[]
+
+  @@index([merchantId, status, expiresAt])
+  @@index([agentId, createdAt])
+}
+
+model OfferItem {
+  id                   String       @id @default(cuid())
+  offerId              String
+  productId            String
+  quantity             Int
+  unitPrice            Int
+  offer                 Offer        @relation(fields: [offerId], references: [id], onDelete: Cascade)
+  product               Product      @relation(fields: [productId], references: [id])
+
+  @@unique([offerId, productId])
+}
+
+model Campaign {
+  id                   String         @id @default(cuid())
+  merchantId           String
+  productId            String?
+  name                 String
+  audience             Json
+  discountPercent      Decimal        @db.Decimal(5, 2)
+  budget               Int
+  expectedRevenue      Int?
+  status               CampaignStatus @default(PROPOSED)
+  startsAt             DateTime?
+  endsAt               DateTime?
+  createdAt            DateTime       @default(now())
+  updatedAt            DateTime       @updatedAt
+  merchant             Merchant       @relation(fields: [merchantId], references: [id], onDelete: Cascade)
+  product              Product?       @relation(fields: [productId], references: [id], onDelete: SetNull)
+  approvals            Approval[]
+
+  @@index([merchantId, status, createdAt])
+}
+
+model Order {
+  id                   String         @id
+  merchantId           String
+  customerId           String?
+  agentId              String?
+  cartId               String?        @unique
+  status               OrderStatus    @default(CREATED)
+  currency             String         @default("INR")
+  amount               Int
+  idempotencyKey       String
+  version              Int            @default(1)
+  createdAt            DateTime       @default(now())
+  updatedAt            DateTime       @updatedAt
+  merchant             Merchant       @relation(fields: [merchantId], references: [id], onDelete: Cascade)
+  customer             Customer?      @relation(fields: [customerId], references: [id], onDelete: SetNull)
+  agent                 Agent?         @relation(fields: [agentId], references: [id], onDelete: SetNull)
+  cart                  Cart?          @relation(fields: [cartId], references: [id], onDelete: SetNull)
+  items                 OrderItem[]
+  payments              Payment[]
+  approvals             Approval[]
+
+  @@unique([merchantId, idempotencyKey])
+  @@index([merchantId, status, createdAt])
+  @@index([agentId, createdAt])
+}
+
+model OrderItem {
+  id                   String       @id @default(cuid())
+  orderId              String
+  productId            String
+  quantity             Int
+  unitPrice            Int
+  order                 Order        @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  product               Product      @relation(fields: [productId], references: [id])
+
+  @@index([orderId])
+  @@index([productId])
+}
+
+model Payment {
+  id                   String        @id @default(cuid())
+  orderId              String
+  provider             String        @default("razorpay")
+  providerOrderId      String         @unique
+  providerPaymentId    String?        @unique
+  status               PaymentStatus  @default(CREATED)
+  amount               Int
+  currency             String         @default("INR")
+  signatureVerifiedAt  DateTime?
+  failureCode          String?
+  createdAt            DateTime       @default(now())
+  updatedAt            DateTime       @updatedAt
+  order                 Order          @relation(fields: [orderId], references: [id], onDelete: Cascade)
+
+  @@index([orderId, status])
+}
+
+model Policy {
+  id                   String           @id @default(cuid())
+  merchantId           String
+  name                 String
+  version              Int
+  rules                Json
+  active               Boolean          @default(false)
+  createdAt            DateTime         @default(now())
+  merchant             Merchant         @relation(fields: [merchantId], references: [id], onDelete: Cascade)
+  decisions            PolicyDecision[]
+
+  @@unique([merchantId, name, version])
+  @@index([merchantId, active])
+}
+
+model PolicyDecision {
+  id                   String          @id @default(cuid())
+  policyId             String
+  merchantId           String
+  actionType           String
+  intentHash           String
+  status               DecisionStatus
+  reason               String
+  requiresApproval     Boolean
+  financialExposure    Int
+  checks               Json
+  createdAt            DateTime        @default(now())
+  policy                Policy          @relation(fields: [policyId], references: [id])
+  offers               Offer[]
+  approvals             Approval[]
+  actions               AgentAction[]
+
+  @@index([merchantId, actionType, createdAt])
+  @@index([intentHash])
+}
+
+model Approval {
+  id                   String         @id
+  merchantId           String
+  policyDecisionId     String?
+  offerId              String?
+  campaignId           String?
+  orderId              String?
+  status               ApprovalStatus @default(PENDING)
+  requestedBy          String
+  resolvedByUserId     String?
+  reason               String
+  expiresAt            DateTime?
+  resolvedAt           DateTime?
+  createdAt            DateTime       @default(now())
+  merchant             Merchant       @relation(fields: [merchantId], references: [id], onDelete: Cascade)
+  policyDecision       PolicyDecision? @relation(fields: [policyDecisionId], references: [id])
+  offer                 Offer?         @relation(fields: [offerId], references: [id])
+  campaign              Campaign?      @relation(fields: [campaignId], references: [id])
+  order                 Order?         @relation(fields: [orderId], references: [id])
+  resolvedBy            User?          @relation("ApprovalResolver", fields: [resolvedByUserId], references: [id])
+
+  @@index([merchantId, status, createdAt])
+}
+
+model AgentAction {
+  id                   String          @id @default(cuid())
+  merchantId           String
+  agentId              String
+  policyDecisionId     String?
+  actionType           String
+  structuredIntent     Json
+  toolName             String
+  status               String
+  result                Json?
+  createdAt             DateTime        @default(now())
+  merchant             Merchant         @relation(fields: [merchantId], references: [id], onDelete: Cascade)
+  agent                 Agent            @relation(fields: [agentId], references: [id])
+  policyDecision       PolicyDecision?   @relation(fields: [policyDecisionId], references: [id])
+
+  @@index([merchantId, agentId, createdAt])
+}
+
+model AuditEvent {
+  id                   String       @id @default(cuid())
+  merchantId           String
+  agentId              String?
+  userId               String?
+  actorType            String
+  actorId              String
+  action               String
+  summary              String
+  status               AuditStatus
+  amount               Int?
+  metadata             Json
+  previousHash         String?
+  eventHash            String
+  createdAt            DateTime     @default(now())
+  merchant             Merchant     @relation(fields: [merchantId], references: [id], onDelete: Cascade)
+  agent                 Agent?       @relation(fields: [agentId], references: [id], onDelete: SetNull)
+  user                  User?        @relation(fields: [userId], references: [id], onDelete: SetNull)
+
+  @@index([merchantId, createdAt])
+  @@index([merchantId, action])
+  @@unique([merchantId, eventHash])
+}
+
+model WebhookEvent {
+  id                   String       @id
+  merchantId           String
+  provider             String       @default("razorpay")
+  type                 String
+  signatureValid       Boolean
+  payloadHash          String
+  status               String
+  processedAt          DateTime?
+  createdAt            DateTime     @default(now())
+  merchant             Merchant     @relation(fields: [merchantId], references: [id], onDelete: Cascade)
+
+  @@index([merchantId, type, createdAt])
+}
+
+model RevenueOpportunity {
+  id                   String            @id @default(cuid())
+  merchantId           String
+  type                 String
+  title                String
+  description          String
+  productIds           Json
+  signals              Json
+  confidence           Decimal           @db.Decimal(5, 2)
+  estimatedUplift      Int
+  maxExposure          Int
+  status               OpportunityStatus @default(DETECTED)
+  createdAt            DateTime          @default(now())
+  updatedAt            DateTime          @updatedAt
+  merchant             Merchant          @relation(fields: [merchantId], references: [id], onDelete: Cascade)
+
+  @@index([merchantId, status, estimatedUplift])
+}

@@ -1,0 +1,2 @@
+import crypto from "node:crypto";
+export function authorizeAgentRequest(request:Request,claimedAgentId:string){if(process.env.DEMO_MODE!=="false"&&claimedAgentId.startsWith("buyer-agent-"))return true;const configured=process.env.AGENT_API_TOKEN;const provided=request.headers.get("authorization")?.replace(/^Bearer\s+/i,"");if(!configured||!provided||configured.length!==provided.length)return false;return crypto.timingSafeEqual(Buffer.from(configured),Buffer.from(provided))}
